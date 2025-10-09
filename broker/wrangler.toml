@@ -1,0 +1,43 @@
+name = "arthur-rai-broker"
+account_id = "88a7276f12e3f68d6323a82d6ece49ce"
+main = "src/index.js"
+compatibility_date = "2025-10-09"
+
+# Bind your R2 bucket so code can use env.R2
+[[r2_buckets]]
+binding = "R2"                        # referenced in code as env.R2
+bucket_name = "timesheets-signatures" # your R2 bucket name
+
+# Cron for Sheets outbox retries (every 5 minutes)
+[triggers]
+crons = ["*/5 * * * *"]
+
+# ---------- Plaintext runtime variables (safe to commit) ----------
+[vars]
+# Broker/runtime settings
+TZ = "Europe/London"
+ALLOWED_ORIGINS = "https://availability.arthur-rai.co.uk,http://localhost:3000"
+UPLOAD_MAX_BYTES = "300000"
+UPLOAD_CONTENT_TYPE = "image/png"
+PRESIGN_EXPIRES_SECONDS = "600"
+REQUIRE_MD5 = "false"
+BREAK_EXPECTED_MINUTES = "60"
+LOG_LEVEL = "info"
+ENV = "prod"
+FRONTEND_BASE_URL = "https://availability.arthur-rai.co.uk"
+
+# Supabase (non-secret URL)
+SUPABASE_URL = "https://zojgukxyyklcyjbyyqlz.supabase.co"
+
+# R2 (bucket name also provided as a var for convenience)
+R2_BUCKET_NAME = "timesheets-signatures"
+
+# Google Sheets Apps Script webhooks (you’ll implement these later)
+SHEETS_WEBHOOK_URL_AVAILABILITY = "https://script.google.com/macros/s/AKfycbw9X71BbvC55s2iJhyfGU5PoBtOxC9jvFsdKpd8BvrNghMfw8Yy9X-iSZ1Xcw9oTAPMcA/exec"
+SHEETS_WEBHOOK_URL_ROTA = "https://script.google.com/macros/s/AKfycbxt6w1FQ9nRuubK2_dEIjGxQl9qING-HlfRbeDBXnmRZ50aOs23BpVnnougfppppDS8aQ/exec"
+SHEETS_WEBHOOK_URL_TIMESHEETMGMT = ""
+
+# ---------- Secrets (DO NOT put values here; set via dashboard or CLI) ----------
+# wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+# wrangler secret put SHEETS_HMAC_SECRET
+# (optional) wrangler secret put UPLOAD_TOKEN_SECRET   # if you want a dedicated token separate from SHEETS_HMAC_SECRET
