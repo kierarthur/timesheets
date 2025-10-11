@@ -11,7 +11,7 @@
  *  - GET    /timesheets
  *  - POST   /timesheets/query
  *  - POST   /timesheets/authorised-status
- *  - POST   /signatures/presign-get
+ *  - POST   /signatures/presign-get 
  *  - POST   /signatures/presign-get/batch
  *  - GET    /signatures/get?key=...&booking_id=...&role=...&token=...
  *  - GET    /healthz
