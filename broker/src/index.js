@@ -1,6 +1,7 @@
 /**
  * Arthur Rai Broker (Cloudflare Worker) — proxy path to R2 + Supabase REST.
  *
+ 
  * Endpoints:
  *  - POST   /timesheets/presign
  *  - PUT    /upload?key=...&booking_id=...&role=nurse|authoriser&token=...
