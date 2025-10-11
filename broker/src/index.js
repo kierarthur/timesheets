@@ -1,7 +1,6 @@
 /**
  * Arthur Rai Broker (Cloudflare Worker) — proxy path to R2 + Supabase REST.
  *
- 
  * Endpoints:
  *  - POST   /timesheets/presign
  *  - PUT    /upload?key=...&booking_id=...&role=nurse|authoriser&token=...
@@ -20,7 +19,7 @@
  *  - GET    /version
  *
  * Scheduled:
- *  - Cron (*/5 * * * *) → retry pending Sheets outbox deliveries
+ *  - Cron (every 5 minutes) → retry pending Sheets outbox deliveries
  */
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
