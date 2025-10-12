@@ -273,6 +273,46 @@ function isPng(contentType) {
   return /^image\/png(?:;|$)/i.test(contentType || "");
 }
 
+
+// ---------------------- UK timezone check ----------------------
+async function handleUKTimeCheck(env, req) {
+  const body = await parseJSONBody(req);
+  if (!body) {
+  return withCORS(env, req, badRequest('invalid_json'));
+}
+
+
+  const phone_tz = String(body.phone_tz || '');
+  const phone_epoch_ms = Number(body.phone_epoch_ms);
+
+  // default tolerance 3 minutes; override with UK_TZ_SKEW_MS
+  const tolerance_ms = Math.max(0, Number(env.UK_TZ_SKEW_MS ?? 180000));
+
+  const broker_epoch_ms = Date.now();
+  const broker_tz = 'Europe/London';
+
+  const tzOk = phone_tz === broker_tz;
+  const skew_ms = Number.isFinite(phone_epoch_ms)
+    ? Math.abs(broker_epoch_ms - phone_epoch_ms)
+    : NaN;
+  const skewOk = Number.isFinite(skew_ms) && skew_ms <= tolerance_ms;
+
+  const valid = tzOk && skewOk;
+  const reason = valid
+    ? 'ok'
+    : (!tzOk ? 'tz_mismatch' : (!Number.isFinite(skew_ms) ? 'invalid_phone_epoch' : 'clock_skew'));
+
+  // Always 200 so the FE can branch on .valid without try/catch
+  return withCORS(env, req, ok({
+    valid,
+    reason,
+    tolerance_ms,
+    skew_ms,
+    broker_epoch_ms,
+    broker_tz,
+  }));
+}
+
 // ---------------------- Query builder for list ----------------------
 function buildTimesheetsQuery(env, q) {
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/timesheets`);
@@ -988,6 +1028,10 @@ export default {
       if (req.method === "POST" && p === "/timesheets/presign")          return handlePresign(env, req);
       if (req.method === "PUT"  && p === "/upload")                       return handleUpload(env, req, url);
       if (req.method === "POST" && p === "/timesheets/submit")            return handleSubmit(env, req);
+
+      
+      // Time / TZ checks
+      if (req.method === "POST" && p === "/time/uk-check")                return handleUKTimeCheck(env, req);
 
       // Revoke flows
       if (req.method === "POST" && p === "/timesheets/revoke")            return handleRevoke(env, req);
