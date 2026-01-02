@@ -430,9 +430,12 @@ async function handlePresign(env, req) {
   const maxV = await sbMaxVersion(env, booking_id);
   const version = maxV > 0 ? maxV + 1 : 1;
 
-  // New convention: versioned keys
-  const nurseKey = `/we=${weCompact}/${booking_id}/v${version}/nurse.png`;
-  const authKey  = `/we=${weCompact}/${booking_id}/v${version}/authoriser.png`;
+   // New convention: versioned keys
+    // New convention: versioned keys
+  const nurseKey = `Signatures/we=${weCompact}/${booking_id}/v${version}/nurse.png`;
+  const authKey  = `Signatures/we=${weCompact}/${booking_id}/v${version}/authoriser.png`;
+
+
 
   const maxBytes = parseInt(env.UPLOAD_MAX_BYTES || "300000", 10);
   const expiresSec = parseInt(env.PRESIGN_EXPIRES_SECONDS || "600", 10);
@@ -484,11 +487,13 @@ async function handleUpload(env, req, url) {
     return withCORS(env, req, unauthorized("Token mismatch"));
   }
 
-  // Accept both old and new key shapes:
+    // Accept both old and new key shapes:
   // Old:  /we=YYYYMMDD/bk_xxxxxxxxxxxxxxxx/(nurse|authoriser).png
   // New:  /we=YYYYMMDD/bk_xxxxxxxxxxxxxxxx/v{n}/(nurse|authoriser).png
-  const keyOk = /^\/we=\d{8}\/bk_[a-f0-9]{16}(?:\/v\d+)?\/(nurse|authoriser)\.png$/.test(key);
+   const keyOk = /^Signatures\/we=\d{8}\/bk_[a-f0-9]{16}(?:\/v\d+)?\/(nurse|authoriser)\.png$/.test(key);
   if (!keyOk) return withCORS(env, req, badRequest("Invalid key"));
+
+
 
   const ct = req.headers.get("content-type") || "";
   if (!isPng(ct)) return withCORS(env, req, unsupported("Only image/png allowed"));
@@ -500,8 +505,9 @@ async function handleUpload(env, req, url) {
   const requireMd5 = String(env.REQUIRE_MD5 || "false").toLowerCase() === "true";
   const md5 = req.headers.get("content-md5");
   if (requireMd5 && !md5) return withCORS(env, req, badRequest("Content-MD5 required"));
+   const we = (key.match(/^Signatures\/we=(\d{8})\//) || [])[1];
 
-  const we = (key.match(/^\/we=(\d{8})\//) || [])[1];
+
   const versionMatch = key.match(/\/v(\d+)\//);
   const version = versionMatch ? parseInt(versionMatch[1], 10) : 1;
   const week_ending_date = we ? `${we.slice(0,4)}-${we.slice(4,6)}-${we.slice(6,8)}` : undefined;
@@ -753,8 +759,9 @@ async function handleRevokeAndPresign(env, req) {
   const next_version = (await sbMaxVersion(env, booking_id)) + 1;
   const week_ending_date = current.week_ending_date;
   const weCompact = week_ending_date.replace(/-/g, "");
-  const nurseKey = `/we=${weCompact}/${booking_id}/v${next_version}/nurse.png`;
-  const authKey  = `/we=${weCompact}/${booking_id}/v${next_version}/authoriser.png`;
+    const nurseKey = `Signatures/we=${weCompact}/${booking_id}/v${next_version}/nurse.png`;
+  const authKey  = `Signatures/we=${weCompact}/${booking_id}/v${next_version}/authoriser.png`;
+
 
   const maxBytes = parseInt(env.UPLOAD_MAX_BYTES || "300000", 10);
   const expiresSec = parseInt(env.PRESIGN_EXPIRES_SECONDS || "600", 10);
