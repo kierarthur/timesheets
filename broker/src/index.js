@@ -541,7 +541,17 @@ async function handleSubmit(env, req) {
 
   // Eligibility
   if (!isEligibleWindow(body.worked_end_iso)) {
-    return withCORS(env, req, new Response(JSON.stringify({ error: "Shift not in eligible window (must be ongoing or ended ≤ 4h)", code: "INELIGIBLE" }), { status: 422, headers: JSON_HEADERS }));
+    return withCORS(
+      env,
+      req,
+      new Response(
+        JSON.stringify({
+          error: "Shift not in eligible window (must be ongoing or ended ≤ 4h)",
+          code: "INELIGIBLE"
+        }),
+        { status: 422, headers: JSON_HEADERS }
+      )
+    );
   }
 
   // Keys exist?
@@ -550,10 +560,10 @@ async function handleSubmit(env, req) {
   if (!nurseHead || !authHead) return withCORS(env, req, badRequest("Signatures not uploaded"));
 
   const worked_date_local = londonDate(body.worked_start_iso);
-  const week_ending_date = weekEndingSunday(worked_date_local);
-  const break_minutes = minutesBetween(body.break_start_iso, body.break_end_iso);
-  const worked_minutes = minutesBetween(body.worked_start_iso, body.worked_end_iso);
-  const break_expected = parseInt(env.BREAK_EXPECTED_MINUTES || "60", 10);
+  const week_ending_date  = weekEndingSunday(worked_date_local);
+  const break_minutes     = minutesBetween(body.break_start_iso, body.break_end_iso);
+  const worked_minutes    = minutesBetween(body.worked_start_iso, body.worked_end_iso);
+  const break_expected    = parseInt(env.BREAK_EXPECTED_MINUTES || "60", 10);
 
   // Determine version: prefer explicit, otherwise parse from key
   let version = parseInt(body.version || "0", 10);
@@ -574,6 +584,11 @@ async function handleSubmit(env, req) {
     booking_id: body.booking_id,
     version,
     is_current: true,
+
+    // ✅ Explicitly mark this row as DAILY + ELECTRONIC hours (helps CloudTMS route classification)
+    sheet_scope: "DAILY",
+    submission_mode: "ELECTRONIC",
+    line_type: "HOURS",
 
     // normalized strings your table expects
     occupant_key_norm: (body.candidate_id || body.occupant_key || "").toLowerCase(),
@@ -604,7 +619,22 @@ async function handleSubmit(env, req) {
     idempotency_key: body.idempotency_key,
     client_hash: body.client_hash || null,
     client_ua: body.client_user_agent || req.headers.get("user-agent") || "",
+
+    // ✅ Not a QR flow (defensive)
+    qr_token: null,
+    qr_status: null,
+    qr_payload_json: {},      // keep as object
+    qr_generated_at: null,
+    qr_scanned_at: null,
+    qr_scan_info_json: null,
+    qr_r2_key: null,
   };
+
+  // ✅ only include if it's a real JSON object (matches DB constraint)
+  const hint = body.candidate_hint_text;
+  if (hint && typeof hint === "object" && !Array.isArray(hint)) {
+    row.candidate_hint_text = hint;
+  }
 
   let ts;
   try {
@@ -615,12 +645,17 @@ async function handleSubmit(env, req) {
 
   // Outbox: upsert per target
   const ts_id = ts?.timesheet_id || null;
-  const payload = { booking_id: body.booking_id, authorised: true, timesheet_id: ts_id, idempotency_key: body.idempotency_key };
+  const payload = {
+    booking_id: body.booking_id,
+    authorised: true,
+    timesheet_id: ts_id,
+    idempotency_key: body.idempotency_key
+  };
 
   const targets = [
-    { name: "availability", url: env.SHEETS_WEBHOOK_URL_AVAILABILITY },
-    { name: "rota", url: env.SHEETS_WEBHOOK_URL_ROTA },
-    { name: "timesheet_mgmt", url: env.SHEETS_WEBHOOK_URL_TIMESHEETMGMT },
+    { name: "availability",    url: env.SHEETS_WEBHOOK_URL_AVAILABILITY },
+    { name: "rota",            url: env.SHEETS_WEBHOOK_URL_ROTA },
+    { name: "timesheet_mgmt",  url: env.SHEETS_WEBHOOK_URL_TIMESHEETMGMT },
   ].filter(t => !!t.url);
 
   const results = {};
@@ -641,27 +676,64 @@ async function handleSubmit(env, req) {
     }
 
     // Try immediate send for availability
-    if (t.name === "availability") {
-      const res = await postToSheet(env, "availability", payload);
-      if (res.ok) {
-        await sbUpdateOutbox(env, ob.id, { status: "DELIVERED", attempt_count: (ob.attempt_count || 0) + 1, last_error: null, delivered_at: new Date().toISOString() });
-        results[t.name] = { delivered: true };
-      } else {
-        await sbUpdateOutbox(env, ob.id, {
-          status: "PENDING",
-          attempt_count: (ob.attempt_count || 0) + 1,
-          last_error: `HTTP ${res.status}: ${res.error || ""}`.trim(),
-          next_attempt_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+ if (t.name === "availability") {
+  const res = await postToSheet(env, "availability", payload);
+  if (res.ok) {
+    await sbUpdateOutbox(env, ob.id, {
+      status: "DELIVERED",
+      attempt_count: (ob.attempt_count || 0) + 1,
+      last_error: null,
+      delivered_at: new Date().toISOString()
+    });
+
+    // ✅ NEW: reflect sync outcome on the exact timesheet row (best-effort)
+    try {
+      if (ts_id) {
+        const patchUrl =
+          `${env.SUPABASE_URL}/rest/v1/timesheets?timesheet_id=eq.${encodeURIComponent(ts_id)}`;
+        const patchRes = await fetch(patchUrl, {
+          method: "PATCH",
+          headers: { ...sbHeaders(env) },
+          body: JSON.stringify({ status: "SHEETS_SYNCED" }),
         });
-        results[t.name] = { delivered: false, error: res.error || `HTTP ${res.status}` };
+        if (!patchRes.ok) {
+          const ttxt = await patchRes.text().catch(() => "");
+          console.warn("Timesheet status patch failed:", patchRes.status, ttxt);
+        }
       }
-    } else {
-      results[t.name] = { queued: true };
+    } catch (e) {
+      console.warn("Failed to patch timesheet status to SHEETS_SYNCED:", e);
     }
+
+    results[t.name] = { delivered: true };
+  } else {
+    await sbUpdateOutbox(env, ob.id, {
+      status: "PENDING",
+      attempt_count: (ob.attempt_count || 0) + 1,
+      last_error: `HTTP ${res.status}: ${res.error || ""}`.trim(),
+      next_attempt_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+    results[t.name] = { delivered: false, error: res.error || `HTTP ${res.status}` };
+  }
+} else {
+  results[t.name] = { queued: true };
+}
+
   }
 
   const status = results.availability?.delivered ? "SHEETS_SYNCED" : "SHEETS_PENDING";
-  return withCORS(env, req, ok({ ok: true, timesheet_id: ts_id, status, delivery: results, break_ok: break_minutes === break_expected, version }));
+  return withCORS(
+    env,
+    req,
+    ok({
+      ok: true,
+      timesheet_id: ts_id,
+      status,
+      delivery: results,
+      break_ok: break_minutes === break_expected,
+      version
+    })
+  );
 }
 
 // ---------------------- Revoke flows ----------------------
@@ -985,9 +1057,39 @@ async function retryOutbox(env) {
   for (const r of rows) {
     if (r.next_attempt_at && new Date(r.next_attempt_at).getTime() > Date.now()) continue;
 
-    const res = await postToSheet(env, r.target, r.payload_json || r.payload || {});
+    const payload = r.payload_json || r.payload || {};
+    const res = await postToSheet(env, r.target, payload);
+
     if (res.ok) {
-      await sbUpdateOutbox(env, r.id, { status: "DELIVERED", attempt_count: (r.attempt_count || 0) + 1, last_error: null, delivered_at: new Date().toISOString() });
+      await sbUpdateOutbox(env, r.id, {
+        status: "DELIVERED",
+        attempt_count: (r.attempt_count || 0) + 1,
+        last_error: null,
+        delivered_at: new Date().toISOString()
+      });
+
+   // ✅ NEW: if availability delivery succeeds on retry, reflect it on the timesheet row
+if (r.target === "availability" && payload?.authorised === true) {
+  try {
+    const ts_id = payload?.timesheet_id || null;
+    if (ts_id) {
+      const patchUrl =
+        `${env.SUPABASE_URL}/rest/v1/timesheets?timesheet_id=eq.${encodeURIComponent(ts_id)}`;
+      const patchRes = await fetch(patchUrl, {
+        method: "PATCH",
+        headers: { ...sbHeaders(env) },
+        body: JSON.stringify({ status: "SHEETS_SYNCED" }),
+      });
+      if (!patchRes.ok) {
+        const ttxt = await patchRes.text().catch(() => "");
+        console.warn("Timesheet status patch (retry) failed:", patchRes.status, ttxt);
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to patch timesheet status to SHEETS_SYNCED on retry:", e);
+  }
+}
+
     } else {
       const attempts = (r.attempt_count || 0) + 1;
       let delay = 5;
