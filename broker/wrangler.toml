@@ -26,8 +26,9 @@ LOG_LEVEL = "info"
 ENV = "prod"
 FRONTEND_BASE_URL = "https://availability.arthur-rai.co.uk"
 
-# Supabase (non-secret URL)
-SUPABASE_URL = "https://zojgukxyyklcyjbyyqlz.supabase.co"
+# Provider-neutral PostgREST route. The legacy variable name is retained for
+# application compatibility; LIVE traffic terminates at the Miget gateway.
+SUPABASE_URL = "https://cloudtms-live-miget-gateway.kier-88a.workers.dev"
 
 # R2 (bucket name also provided as a var for convenience)
 R2_BUCKET_NAME = "timesheets-signatures"
@@ -39,5 +40,7 @@ SHEETS_WEBHOOK_URL_TIMESHEETMGMT = ""
 
 # ---------- Secrets (DO NOT put values here; set via dashboard or CLI) ----------
 # wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   Use the independently credentialed LIVE Miget/PostgREST service-role JWT,
+#   never a former Supabase key or a TEST/other-agency credential.
 # wrangler secret put SHEETS_HMAC_SECRET
 # (optional) wrangler secret put UPLOAD_TOKEN_SECRET   # if you want a dedicated token separate from SHEETS_HMAC_SECRET
