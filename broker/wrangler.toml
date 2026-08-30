@@ -2,6 +2,7 @@ name = "arthur-rai-broker"
 account_id = "88a7276f12e3f68d6323a82d6ece49ce"
 main = "src/index.js"
 compatibility_date = "2025-10-09"
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # Bind your R2 bucket so code can use env.R2
 [[r2_buckets]]
